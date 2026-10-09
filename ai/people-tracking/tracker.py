@@ -40,7 +40,7 @@ def select_roi_mouse(event, x, y, flags, param):
         print(f"--> New ROI: X1:{ROI_X1}, Y1:{ROI_Y1}, X2:{ROI_X2}, Y2:{ROI_Y2}")
 
 
-model = YOLO("yolo11n.pt")
+model = YOLO("yolo11s.pt")
 TARGET_CLASS = 0
 
 # Backend integration settings.
@@ -70,7 +70,14 @@ while cap.isOpened():
 
     # 1. Run tracking on the full frame
     # persist=True maintains IDs across frames
-    results = model.track(frame, persist=True, verbose=False)
+    results = model.track(
+        frame,
+        persist=True,
+        verbose=False,
+        conf=0.15,
+        imgsz=1280,
+        iou=0.5
+    )
 
     if (w > 0 and h > 0) or drawing:
         color = (0, 255, 255)

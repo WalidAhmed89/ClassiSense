@@ -4,8 +4,18 @@ import cv2
 import requests
 import time
 
+from arduino_controller import LightController
+
+
+lights = LightController(
+    port="COM3",        # [ARDUINO] بورت الـ Arduino (غيّره حسب جهازك، أو استخدم Arduino.AUTODETECT)
+    led_pins=(8,),      # [ARDUINO] أرقام الـ pins الموصل عليها الليدات (ممكن أكتر من واحد: (8, 9, 10))
+    empty_delay=10,     # [ARDUINO] الثواني اللي بنستناها والقاعة فاضية قبل ما نقفل الأنوار
+    enabled=True        # [ARDUINO] خليها False لو عايز تشغّل الكود من غير Arduino
+)
+
 # Load YOLO model
-model = YOLO("yolo11s.pt")
+model = YOLO("yolo11m.pt")
 
 # Person class in COCO dataset
 TARGET_CLASS = 0
@@ -29,12 +39,13 @@ while cap.isOpened():
 
     # Detect and track objects
     results = model.track(
-        frame,
-        persist=True,
-        verbose=False,
-        conf=0.10,
-        imgsz=1280,
-        iou=0.4
+    frame,
+    persist=True,
+    verbose=False,
+    conf=0.10,
+    imgsz=1280,
+    iou=0.4,
+    agnostic_nms=True
     )
 
     # Count people in the whole frame
@@ -129,6 +140,8 @@ while cap.isOpened():
 
         last_sent_time = now
 
+    lights.update(occupancy_count) 
+
     # Display video frame
     cv2.imshow("YOLO People Counting", frame)
 
@@ -144,3 +157,4 @@ while cap.isOpened():
 # Release resources
 cap.release()
 cv2.destroyAllWindows()
+lights.close()  

@@ -4,11 +4,11 @@
 
 ClassiSense is an intelligent classroom monitoring system that combines **Computer Vision, Artificial Intelligence, Data Science, and IoT** to monitor classroom occupancy, environmental conditions, and safety in real time.
 
-The system uses a camera to analyze the classroom and estimate the number of students present. IoT sensors connected to an ESP32 collect environmental data such as temperature, humidity, and other relevant measurements.
+The system uses a camera to analyze the classroom and estimate the number of students present. An Arduino or ESP32 connects directly to the Computer Vision computer (for example, through USB Serial) to provide sensor readings and receive device-control commands. The API layer is reserved for communication between the Computer Vision application and the frontend dashboard; the microcontroller does not need to communicate with the backend API.
 
 The collected data is stored and analyzed to discover patterns, visualize classroom behavior, and build Machine Learning models that can make predictions and intelligent decisions.
 
-Based on the detected conditions, the system can automatically control classroom devices such as lights and alarms.
+Based on the detected conditions, the Computer Vision application can send control commands directly to the Arduino or ESP32, which operates classroom devices such as lights and alarms. Local safety actions should not depend on the dashboard or network being available.
 
 ---
 
@@ -30,45 +30,34 @@ The main objectives of ClassiSense are:
 
 # System Overview
 
-The system consists of four main layers:
+The system has three main parts: the Computer Vision application, the directly connected IoT controller, and the dashboard/backend software.
 
 ```text
-                Physical Classroom
-                       |
-        +--------------+--------------+
-        |                             |
-      Camera                       IoT Sensors
-        |                             |
-        v                             v
- Computer Vision                    ESP32
-   + AI Models                       |
-        |                             |
-        +-------------+---------------+
-                      |
-                      v
-                Data Collection
-                      |
-                      v
-                  Database
-                      |
-             +--------+--------+
-             |                 |
-             v                 v
-       Data Science        Machine Learning
-             |                 |
-             +--------+--------+
-                      |
-                      v
-                Decision Layer
-                      |
-                      v
-                    ESP32
-                      |
-          +-----------+-----------+
-          |           |           |
-        Lights      Buzzer      Alerts
+                    Physical Classroom
+                           |
+              +------------+------------+
+              |                         |
+            Camera                 Sensors / Devices
+              |                         |
+              v                         v
+      Computer Vision  <---Serial---> Arduino / ESP32
+      (Python, OpenCV,                  |   |
+       YOLO, decision logic)            |   +--> Lights / Buzzer / Relays
+              |
+              | REST API (software data only)
+              v
+        Backend / API Layer
+              |
+        +-----+------+
+        |            |
+        v            v
+    Database    Frontend Dashboard
+        |
+        v
+ Historical Data / Data Science / ML
 ```
 
+**Communication rule:** the Arduino/ESP32 connects directly to the Computer Vision application, typically over USB Serial for the first implementation. The API is used only for exchanging application data between the Computer Vision side and the dashboard software through the backend. There is no separate API connection between the microcontroller and the backend.
 ---
 
 # Main Features
@@ -174,7 +163,7 @@ ESP32
 Buzzer   Warning
 ```
 
-The system can also send an alert to the software dashboard.
+The Computer Vision application can forward an alert to the dashboard through the API. The Arduino/ESP32 should still activate its local buzzer or other local safety output directly when the connected safety sensor detects a configured danger condition.
 
 ---
 
@@ -219,7 +208,7 @@ The project may also use Computer Vision / AI models for safety detection such a
 
 Data Science is an important part of ClassiSense.
 
-The system continuously collects data from both the IoT sensors and the Computer Vision system.
+The Computer Vision application receives sensor readings directly from the connected Arduino/ESP32 and combines them with occupancy results before sending relevant data to the backend for storage.
 
 Example dataset:
 
@@ -294,22 +283,26 @@ The exact Machine Learning model will depend on the collected dataset and the fi
 
 # IoT System
 
-The IoT hardware is based on an **ESP32**.
+The hardware controller can be an **Arduino Uno** or an **ESP32**. It connects directly to the computer running the Computer Vision application, rather than sending sensor data to the backend itself.
 
-The ESP32 is responsible for:
+The direct connection can use:
 
-* Reading sensor values.
-* Controlling lights.
-* Controlling the buzzer.
-* Sending sensor data to the software system.
-* Receiving commands from the backend.
-* Communicating over Wi-Fi.
+* **USB Serial** — recommended for the initial prototype and suitable for either Arduino Uno or ESP32.
+* **Wi-Fi** — optional for a later ESP32-based implementation if wireless communication is needed. The project does not require the ESP32 to call backend APIs.
+
+The microcontroller is responsible for:
+
+* Reading connected sensor values.
+* Sending sensor readings to the Computer Vision application over the direct connection.
+* Receiving control commands from the Computer Vision application.
+* Controlling lights, relays, LEDs, and buzzers.
+* Performing essential local safety actions without depending on the dashboard or internet connection.
 
 Possible hardware components:
 
 ### Main Controller
 
-* ESP32 Development Board
+* Arduino Uno R3 or ESP32 Development Board
 
 ### Sensors
 
@@ -329,46 +322,36 @@ Depending on the final implementation:
 * Relay Module
 * Optional OLED/LCD Display
 
+**Safety note:** prototype flame/smoke sensors are not certified fire-alarm equipment. Any real-world installation must retain suitable certified fire-safety systems.
 ---
 
 # Software Architecture
 
-The project can be divided into several software components.
+The Computer Vision application is the integration point for the camera and the directly connected IoT controller. The dashboard does not communicate with the microcontroller directly.
 
 ```text
-                    Camera
-                      |
-                      v
-             Python Computer Vision
-                      |
-                      v
-              AI / ML Processing
-                      |
-                      v
-                Data Processing
-                      |
-                      v
-                  Backend API
-                      |
-             +--------+--------+
-             |                 |
-             v                 v
-          Database         Dashboard
-             |
-             v
-       Historical Data
-             |
-             v
-       Data Science / ML
+Camera --> Computer Vision / AI Application <--> Arduino or ESP32
+                         |
+                         | REST API
+                         v
+                   Backend Services
+                         |
+                    PostgreSQL
+                         |
+                         v
+                Frontend Dashboard
 ```
 
-The ESP32 communicates with the software system through Wi-Fi using protocols such as:
+The Computer Vision application:
 
-* HTTP/REST
-* MQTT
+* Processes camera frames and calculates classroom occupancy.
+* Receives sensor readings from the Arduino/ESP32 over the direct connection.
+* Applies decision logic and sends device-control commands back to the controller.
+* Sends occupancy, sensor data, and alerts to the backend through the API for display and storage.
 
-The final communication protocol will depend on the project implementation.
+The backend provides the API used by the Computer Vision application and dashboard software, validates and stores incoming data, and serves the information needed by the dashboard. The Arduino/ESP32 does **not** call these APIs.
 
+The initial direct hardware connection can use USB Serial. ESP32 Wi-Fi or MQTT may be considered as a future option, but is not required for the architecture described here.
 ---
 
 # Suggested Technology Stack
@@ -413,9 +396,9 @@ The final communication protocol will depend on the project implementation.
 
 ## Communication
 
-* Wi-Fi
-* HTTP/REST
-* MQTT
+* USB Serial between the Computer Vision computer and Arduino/ESP32 (initial implementation)
+* HTTP/REST API between the Computer Vision application and the backend/dashboard software
+* Optional ESP32 Wi-Fi or MQTT in a future version; not required for the initial design
 
 ## Development Tools
 
@@ -436,33 +419,29 @@ The complete system follows this process:
 1. Camera captures classroom video
                 |
                 v
-2. Computer Vision detects students
+2. Computer Vision detects and counts people
+                |
+                +<---- Direct Serial connection ----> Arduino / ESP32
+                |                                      |          |
+                |                               Sensor readings  Device control
+                |                                      |          |
+                +<--------------------------------------+          v
+                |                                         Lights / Buzzer
+                v
+3. Computer Vision sends occupancy, sensor readings, and alerts
+   to the backend through the REST API
                 |
                 v
-3. ESP32 collects sensor readings
+4. Backend validates and stores data in PostgreSQL
                 |
                 v
-4. Data is sent to the backend
+5. Dashboard retrieves and displays current and historical data
                 |
                 v
-5. Data is stored in PostgreSQL
-                |
-                v
-6. Data Science processes historical data
-                |
-                v
-7. ML models analyze / predict conditions
-                |
-                v
-8. System makes a decision
-                |
-                v
-9. Command is sent to ESP32
-                |
-                v
-10. ESP32 controls lights / buzzer / devices
+6. Data Science / ML analyzes historical data when sufficient data exists
 ```
 
+The microcontroller communicates directly with the Computer Vision application. API communication is limited to the software data path between the Computer Vision application and the dashboard/backend. Local device control does not depend on an API request.
 ---
 
 # Example Scenario
@@ -473,14 +452,14 @@ The complete system follows this process:
 Camera:
 Students = 0
 
-ESP32:
+Arduino / ESP32 (directly connected):
 Temperature = 25°C
 Humidity = 45%
 
-System:
+Computer Vision application:
 Classroom = Empty
 
-Action:
+Direct command to Arduino / ESP32:
 Lights = OFF
 ```
 
@@ -490,10 +469,10 @@ Lights = OFF
 Camera:
 Students = 18
 
-System:
+Computer Vision application:
 Classroom = Occupied
 
-Action:
+Direct command to Arduino / ESP32:
 Lights = ON
 ```
 
@@ -503,12 +482,13 @@ Lights = ON
 Fire Detection:
 Detected
 
-System:
+Arduino / ESP32:
+Activate local buzzer when configured safety sensor triggers
+
+Computer Vision application:
 Safety Status = DANGER
 
-Action:
-Buzzer = ON
-Warning = ON
+API to dashboard software:
 Alert = Sent
 ```
 
@@ -553,6 +533,7 @@ ClassiSense/
 │
 ├── computer-vision/
 │   ├── detection/
+│   ├── hardware-serial/
 │   ├── models/
 │   └── main.py
 │
@@ -562,21 +543,23 @@ ClassiSense/
 │   ├── preprocessing/
 │   └── models/
 │
-├── esp32/
-│   ├── sensors/
-│   ├── actuators/
-│   └── main/
+├── iot/
+│   ├── arduino/
+│   └── esp32/
 │
 ├── backend/
 │   └── spring-boot/
 │
 ├── dashboard/
 │
+├── database/
+│
 ├── docs/
 │
 └── README.md
 ```
 
+The exact folder names may change as implementation progresses. The key design decision is that `computer-vision/` communicates directly with the microcontroller, while the API is used for data exchange with the backend/dashboard software.
 ---
 
 # Expected Results
@@ -593,7 +576,7 @@ The final system should be able to:
 * Analyze classroom behavior using Data Science.
 * Visualize collected data.
 * Apply Machine Learning for prediction or anomaly detection.
-* Demonstrate real-time communication between AI software and IoT hardware.
+* Demonstrate direct communication between the Computer Vision application and IoT hardware, plus API-based data exchange with the dashboard software.
 
 ---
 

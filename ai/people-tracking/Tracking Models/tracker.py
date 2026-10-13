@@ -1,4 +1,4 @@
-from ultralytics import YOLO
+from ultralytics_model import YOLO
 import cv2
 import requests
 import time
@@ -40,7 +40,7 @@ def select_roi_mouse(event, x, y, flags, param):
         print(f"--> New ROI: X1:{ROI_X1}, Y1:{ROI_Y1}, X2:{ROI_X2}, Y2:{ROI_Y2}")
 
 
-model = YOLO("yolo11s.pt")
+model = YOLO("../yolo11s.pt")
 TARGET_CLASS = 0
 
 # Backend integration settings.
@@ -74,9 +74,9 @@ while cap.isOpened():
         frame,
         persist=True,
         verbose=False,
-        conf=0.15,
+        conf=0.3,
         imgsz=1280,
-        iou=0.5
+        iou=0.4
     )
 
     if (w > 0 and h > 0) or drawing:

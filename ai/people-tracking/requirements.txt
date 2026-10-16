@@ -1,3 +1,6 @@
 ultralytics
 opencv-python
 numpy
+pyfirmata2
+pyserial
+requests

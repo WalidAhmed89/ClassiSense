@@ -18,13 +18,14 @@ class ClassroomController:
         led_pins=(2,),
         buzzer_pin=3,
         gas_digital_pin=4,
-        gas_analog_pin=1,
+        gas_analog_pin=None,
         temp_pin=0,
         empty_delay=10,
         gas_active_low=True,
         gas_analog_threshold=0.35,
         v_ref=5.0,
         history_interval=2.0,
+        sampling_ms=500,
         enabled=True
     ):
         # إعدادات المؤقت والمهلة
@@ -42,22 +43,30 @@ class ClassroomController:
         self.lights_on = False
         self.buzzer_on = False
 
+        # متابعة زمن تشغيل الإضاءة (led_on_seconds) لحساب استهلاك الطاقة والداتا بيز
+        self.led_start_time = None
+        self.led_total_on_seconds = 0.0
+
         # قراءات الحساسات اللحظية
         self.temperature = None
         self.gas_digital_val = None
         self.gas_analog_val = None
+        self.gas_sensor_raw = 0
         self.gas_detected = False
 
-        # المتغير المؤقت لتخزين أحدث قراءة من الحساسات
+        # المتغير المؤقت لتخزين أحدث قراءة من الحساسات (متوافق مع جداول MySQL)
         self.sensor_data = {
             "timestamp": None,
             "datetime": None,
             "temperature_c": None,
-            "gas_detected": False,
+            "gas_detected": 0,           # 0: مفيش غاز (طبيعي)، 1: فيه تسريب غاز (خطر)
             "gas_digital_val": None,
             "gas_analog_val": None,
+            "gas_sensor_raw": 0,
             "people_count": 0,
             "lights_on": False,
+            "led_is_on": False,
+            "led_on_seconds": 0,
             "buzzer_on": False
         }
 
@@ -81,8 +90,8 @@ class ClassroomController:
             print(f"[INFO] Connecting to Arduino on port: {port}...")
             self.board = Arduino(port)
 
-            # تفعيل أخذ العينات (Sampling) بمعدل كل 50 مللي ثانية للقراءات التناظرية
-            self.board.samplingOn(50)
+            # تفعيل أخذ العينات (Sampling) بمعدل مريح (500ms) لتهدئة السيريال وتفادي وميض لمبة TX السريع
+            self.board.samplingOn(sampling_ms)
 
             # 1. إعداد ليدات الإضاءة (Digital Output)
             self.leds = [self.board.get_pin(f"d:{p}:o") for p in led_pins]
@@ -104,7 +113,7 @@ class ClassroomController:
                 self.gas_digital_pin_obj.enable_reporting()
                 self.gas_digital_pin_obj.register_callback(self._on_gas_digital_received)
 
-            # 5. إعداد مستشعر الغاز MQ-5 (Analog Input على A1 اختياري)
+            # 5. إعداد مستشعر الغاز MQ-5 (Analog Input اختياري)
             if gas_analog_pin is not None:
                 try:
                     self.gas_analog_pin_obj = self.board.get_pin(f"a:{gas_analog_pin}:i")
@@ -115,7 +124,7 @@ class ClassroomController:
             print("[SUCCESS] Arduino connected and sensors initialized:")
             print(f"  - LED Pin(s): {led_pins}")
             print(f"  - Buzzer Pin: {buzzer_pin}")
-            print(f"  - Gas Sensor (MQ-5): Digital Pin {gas_digital_pin}, Analog Pin A{gas_analog_pin}")
+            print(f"  - Gas Sensor (MQ-5): Digital Pin {gas_digital_pin} (DO)")
             print(f"  - Temp Sensor (LM35): Analog Pin A{temp_pin}")
 
         except Exception as e:
@@ -150,22 +159,47 @@ class ClassroomController:
     def _on_gas_digital_received(self, value):
         """قراءة الإشارة الرقمية لمستشعر الغاز MQ-5"""
         if value is not None:
-            self.gas_digital_val = int(value)
+            self.gas_digital_val = 1 if value else 0
 
     def _on_gas_analog_received(self, value):
-        """قراءة الإشارة التناظرية لمستشعر الغاز MQ-5"""
+        """قراءة الإشارة التناظرية لمستشعر الغاز MQ-5 (اختياري)"""
         if value is not None:
             self.gas_analog_val = round(float(value), 3)
+            raw = int(round(value * 1023.0)) if value <= 1.0 else int(round(value))
+            self.gas_sensor_raw = max(0, min(1023, raw))
+
+    def get_gas_status(self):
+        """إرجاع حالة الغاز كعدد صحيح (0: مفيش غاز / آمن، 1: فيه غاز / خطر)"""
+        return 1 if self.gas_detected else 0
+
+    def get_gas_raw(self):
+        """توافقية: إرجاع 1 أو 0"""
+        return 1 if self.gas_detected else 0
 
     # ==========================
     # دوال التحكم في المشغلات (Actuators)
     # ==========================
 
     def _write_leds(self, state):
-        """تشغيل أو إطفاء الليدات"""
+        """تشغيل أو إطفاء الليدات مع تتبع مدة التشغيل (led_on_seconds)"""
+        now = time.time()
+        if state and not self.lights_on:
+            self.led_start_time = now
+        elif not state and self.lights_on:
+            if self.led_start_time is not None:
+                self.led_total_on_seconds += (now - self.led_start_time)
+                self.led_start_time = None
+
         for led in self.leds:
             led.write(1 if state else 0)
         self.lights_on = state
+
+    def get_led_on_seconds(self):
+        """إرجاع إجمالي الثواني التي عملت فيها الإضاءة (تراكمي + الجلسة الحالية)"""
+        current_active = 0.0
+        if self.lights_on and self.led_start_time is not None:
+            current_active = time.time() - self.led_start_time
+        return int(round(self.led_total_on_seconds + current_active))
 
     def _write_buzzer(self, state):
         """تشغيل أو إطفاء الـ Buzzer"""
@@ -178,18 +212,24 @@ class ClassroomController:
     # ==========================
 
     def _evaluate_gas_hazard(self):
-        """فحص حالة الغاز وتحديد ما إذا كان هناك خطر"""
+        """فحص حالة الغاز وتحديد ما إذا كان هناك خطر (0: آمن، 1: تسريب)"""
         detected = False
 
+        # قراءة مباشرة للطرف الرقمي إن لم يتم تحديث الـ callback بعد
+        if self.gas_digital_val is None and self.gas_digital_pin_obj is not None:
+            raw_val = self.gas_digital_pin_obj.read()
+            if raw_val is not None:
+                self.gas_digital_val = 1 if raw_val else 0
+
         # فحص القراءة الرقمية (DO)
-        # معظم موديولات MQ-5 مع شريحة LM393 تعطي 0 (LOW) عند رصد الغاز
+        # معظم موديولات MQ-5 مع شريحة LM393 تعطي 0 (LOW) عند رصد الغاز (Active Low)
         if self.gas_digital_val is not None:
             if self.gas_active_low and self.gas_digital_val == 0:
                 detected = True
             elif not self.gas_active_low and self.gas_digital_val == 1:
                 detected = True
 
-        # فحص القراءة التناظرية (AO) إن وجدت كعامل إضافي
+        # فحص القراءة التناظرية (AO) إن كانت مفعلة
         if self.gas_analog_val is not None and self.gas_analog_val >= self.gas_analog_threshold:
             detected = True
 
@@ -244,11 +284,14 @@ class ClassroomController:
             "timestamp": system_time,
             "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
             "temperature_c": self.temperature,
-            "gas_detected": self.gas_detected,
+            "gas_detected": 1 if self.gas_detected else 0,
             "gas_digital_val": self.gas_digital_val,
             "gas_analog_val": self.gas_analog_val,
+            "gas_sensor_raw": 1 if self.gas_detected else 0,
             "people_count": people_count,
             "lights_on": self.lights_on,
+            "led_is_on": self.lights_on,
+            "led_on_seconds": self.get_led_on_seconds(),
             "buzzer_on": self.buzzer_on
         }
 

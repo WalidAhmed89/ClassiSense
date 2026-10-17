@@ -4,3 +4,4 @@ numpy
 pyfirmata2
 pyserial
 requests
+pymysql

@@ -34,7 +34,7 @@ controller = ClassroomController(
     temp_pin=0,             # Pin A0: مستشعر الحرارة LM35
     empty_delay=10,         # ثواني الانتظار قبل إطفاء النور بعد خروج الطلاب
     sampling_ms=500,        # أخذ عينات كل نصف ثانية لتهدئة وميض لمبة TX ومنفذ السيريال
-    enabled=True            # اجعلها False لو بتجرب بدون توصيل الأردوينو
+    enabled=False            # اجعلها False لو بتجرب بدون توصيل الأردوينو
 )
 
 # ==============================================================================
@@ -46,25 +46,28 @@ db_manager = DatabaseManager()
 # 3. تحميل نموذج الذكاء الاصطناعي YOLO
 # ==============================================================================
 # تحميل الموديل (يبحث في المجلد الحالي أو مجلد المشروع الرئيسي)
-model_path = "yolo11s.pt"
-if not Path(model_path).exists() and (CURRENT_DIR.parents[1] / "yolo11s.pt").exists():
-    model_path = str(CURRENT_DIR.parents[1] / "yolo11s.pt")
+model_path = "yolo26n.pt"
+
+# إعدادات الـ Detection (مأخوذة من yolo26.py عشان أدق نتيجة)
+IMAGE_SIZE  = 640          # حجم الصورة اللي بيشوفها الموديل
+CONFIDENCE = 0.15          # threshold منخفض عشان يديتكت أكتر ناس
+TRACKER     = "bytetrack.yaml"  # أفضل tracker للتتبع المتواصل
 
 print(f"[INFO] Loading YOLO model: {model_path}")
 model = YOLO(model_path)
-TARGET_CLASS = 0  # فئة الأشخاص في COCO Dataset هي 0
 
 # ==============================================================================
 # 4. فتح الكاميرا (أو ملف الفيديو)
 # ==============================================================================
 # 0 للكاميرا، أو مسار ملف فيديو مثل "video.mp4"
 
-cap = cv2.VideoCapture(0)
+# cap = cv2.VideoCapture(0)
+
 # if not cap.isOpened() and (CURRENT_DIR / "video.mp4").exists():
 #     print("[WARN] Camera not available, falling back to video.mp4")
 #     cap = cv2.VideoCapture(str(CURRENT_DIR / "video.mp4"))
 
-# cap = cv2.VideoCapture("ai/people-tracking/video.mp4")
+cap = cv2.VideoCapture("ai/people-tracking/video.mp4")
 
 # ==============================================================================
 # 5. حلقة المعالجة اللحظية للفيديو (Main Loop)
@@ -78,35 +81,21 @@ while cap.isOpened():
         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         continue
 
-    # 1. تتبع الأشخاص باستخدام YOLO
+    # 1. تتبع الأشخاص باستخدام YOLO — نفس إعدادات yolo26.py بالظبط
     results = model.track(
         frame,
         persist=True,
+        tracker=TRACKER,
+        classes=[0],           # نفلتر على الناس مباشرةً داخل الموديل
+        conf=CONFIDENCE,       # 0.15 — أحساس أعلى للديتكشن
+        imgsz=IMAGE_SIZE,      # 640
+        device="cpu",
         verbose=False,
-        conf=0.3,
-        iou=0.4
     )
 
-    occupancy_count = 0
-    boxes = results[0].boxes
-
-    if boxes is not None:
-        detected_boxes = boxes.xyxy.cpu().numpy()
-        classes = boxes.cls.cpu().numpy().astype(int)
-        ids = boxes.id.cpu().numpy().astype(int) if boxes.id is not None else [None] * len(detected_boxes)
-
-        for box, cls, track_id in zip(detected_boxes, classes, ids):
-            if cls != TARGET_CLASS:
-                continue
-
-            occupancy_count += 1
-            x1, y1, x2, y2 = map(int, box)
-
-            # رسم المربع حول الشخص ومعرفه
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            label = f"ID: {track_id}" if track_id is not None else "Person"
-            cv2.putText(frame, label, (x1, max(20, y1 - 10)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+    result     = results[0]
+    frame      = result.plot()  # يرسم الـ boxes والـ labels تلقائياً زي yolo26.py
+    occupancy_count = len(result.boxes) if result.boxes is not None else 0
 
     # 2. تحديث الأردوينو (التحكم بالأنوار + قراءة الحساسات)
     controller.update(occupancy_count)

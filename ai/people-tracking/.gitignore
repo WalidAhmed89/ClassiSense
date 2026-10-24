@@ -16,3 +16,7 @@ yolo11n.pt
 # OS
 .DS_Store
 Thumbs.db
+
+# Firebase Credentials
+serviceAccountKey*.json
+*.json.json

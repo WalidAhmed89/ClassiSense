@@ -5,3 +5,4 @@ pyfirmata2
 pyserial
 requests
 pymysql
+firebase-admin

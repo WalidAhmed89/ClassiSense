@@ -4,9 +4,12 @@ ClassiSense - وحدة إدارة قاعدة البيانات السحابية (
 1. تحديث الحالة اللحظية (Live Status) في وثيقة 'classroom/live_status' لتمكين الموقع من التحديث المباشر.
 2. تسجيل دوري في مجموعة 'monitoring_logs' كل 3 دقائق (180 ثانية).
 3. إرسال إنذار فوري في مجموعة 'alerts' عند وجود خطر (تسريب غاز أو حرارة مرتفعة).
+4. إرسال إشعار فوري عبر Telegram Bot عند تشغيل أي إنذار.
 """
 
 import time
+import requests
+from datetime import datetime
 from pathlib import Path
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -20,6 +23,11 @@ LOG_INTERVAL = 180       # تسجيل دوري كل 3 دقائق (180 ثانية
 LIVE_SYNC_INTERVAL = 2   # تحديث الحالة اللحظية كل ثانيتين للموقع
 TEMP_LIMIT = 45.0        # درجة الحرارة الخطرة (45 مئوية)
 ALERT_COOLDOWN = 60      # فترة انتظار (60 ثانية) لمنع تكرار نفس الإنذار
+
+# ─── إعدادات Telegram Bot ───────────────────────────────────────────────────
+TELEGRAM_BOT_TOKEN = "8926530352:AAHG39FNB2GkbCzJR-TWjSXRA3HZvAAEgGI"
+TELEGRAM_CHAT_ID   = "-1004404274117"
+TELEGRAM_API_URL   = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
 
 class DatabaseManager:
@@ -98,8 +106,57 @@ class DatabaseManager:
         except Exception as e:
             print(f"[DB Error] Failed to insert monitoring log to Firestore: {e}")
 
+    # ─── Telegram ────────────────────────────────────────────────────────────
+
+    def send_telegram_alert(self, alert_type, severity, value):
+        """إرسال إشعار فوري عبر Telegram Bot"""
+        
+        if alert_type == "GAS_LEAK":
+            icon    = "💨"
+            title   = "Gas Leak Detected!"
+            detail  = "Dangerous gas level detected in the classroom."
+        elif alert_type == "HIGH_TEMPERATURE":
+            icon    = "🌡️"
+            title   = "High Temperature Alert!"
+            detail  = f"Temperature reached {value}°C (limit: {TEMP_LIMIT}°C)."
+        else:
+            icon    = "⚠️"
+            title   = alert_type
+            detail  = f"Value: {value}"
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        message = (
+            f"{icon} <b>WOLFEYE ALERT: {title}</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"🔴 <b>Type:</b> {alert_type}\n"
+            f"⚠️ <b>Severity:</b> {severity}\n"
+            f"📊 <b>Detail:</b> {detail}\n"
+            f"🕐 <b>Time:</b> {timestamp}\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "📍 WOLFEYE Classroom Monitoring"
+        )
+
+        try:
+            response = requests.post(
+                TELEGRAM_API_URL,
+                json={
+                    "chat_id":    TELEGRAM_CHAT_ID,
+                    "text":       message,
+                    "parse_mode": "HTML"  
+                },
+                timeout=5
+            )
+            if response.status_code == 200:
+                print(f"[Telegram] ✅ Alert sent: {alert_type}")
+            else:
+                print(f"[Telegram] ⚠️ Failed to send alert: {response.status_code}\n{response.text}")
+        except requests.exceptions.RequestException as e:
+            print(f"[Telegram Error] Could not reach Telegram API: {e}")
+
+    # ─── Firebase Alerts ─────────────────────────────────────────────────────
+
     def log_alert(self, alert_type, severity, value):
-        """إدخال إنذار جديد في مجموعة alerts"""
+        """إدخال إنذار جديد في مجموعة alerts + إرسال إشعار Telegram فوري"""
         if not self.db:
             self.connect()
             if not self.db:
@@ -115,6 +172,9 @@ class DatabaseManager:
             print(f"[DB ALERT Firestore] Hazard alert logged: {alert_type} ({severity}) - Value: {value}")
         except Exception as e:
             print(f"[DB Error] Failed to log alert to Firestore: {e}")
+
+        # إرسال إشعار Telegram بعد تسجيل الإنذار في Firebase مباشرةً
+        self.send_telegram_alert(alert_type, severity, value)
 
     def check_and_log_monitoring(self, sensor_data):
         """فحص إرسال البيانات الدورية كل 3 دقائق + تحديث الحالة اللحظية"""

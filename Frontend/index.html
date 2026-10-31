@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ClassiSense (WolfEye) · AI Telemetry Portal</title>
+  <!-- Google Fonts: Orbitron & Sora -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+  <!-- Background Ambient Floating Orbs & Cyber Grid -->
+  <div class="ambient-bg">
+    <div class="ambient-grid"></div>
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <!-- Cybernetic Splash Screen -->
+  <div class="scene" id="splashScene">
+    <div class="splash-hud-grid"></div>
+    <div class="hud-ring hud-ring-outer"></div>
+    <div class="hud-ring hud-ring-inner"></div>
+
+    <div class="zoom">
+      <div class="zoom-content">
+        <img src="assets/images/logo.jpg" alt="WolfEye ClassiSense">
+      </div>
+    </div>
+
+    <!-- Aperture Mechanical Shutters -->
+    <div class="lid top"></div>
+    <div class="lid bot"></div>
+
+    <div class="tag-wrap">
+      <p class="tag disp">CLASSI-SENSE · WOLFEYE</p>
+      <p class="tag-sub disp">SEE EVERY SIGNAL · REALTIME AI TELEMETRY</p>
+    </div>
+  </div>
+
+  <!-- Main Auth Portal -->
+  <main class="auth">
+    <section class="brand">
+      <div class="brand-visual-wrap">
+        <div class="holo-aura"></div>
+        <div class="holo-ring"></div>
+        <img src="assets/images/logo.jpg" alt="WolfEye Hologram">
+      </div>
+      <div class="brand-text-wrap">
+        <h2>CLASSI-SENSE</h2>
+        <p>Real-time computer vision occupancy tracking, ambient LM35 thermals, and MQ-5 gas safety telemetry.</p>
+      </div>
+    </section>
+
+    <section class="formwrap">
+      <div class="card">
+        <div class="tabs">
+          <button id="tL" class="on" type="button">Sign in</button>
+          <button id="tR" type="button">Create account</button>
+        </div>
+
+        <!-- Sign In Form -->
+        <form id="fL">
+          <label>
+            Email Address
+            <input type="email" name="email" required autocomplete="email" placeholder="admin@classisense.edu">
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" required minlength="6" autocomplete="current-password" placeholder="••••••••">
+          </label>
+          <p class="err" id="eL" role="alert"></p>
+          <button type="submit" class="btn disp">SIGN IN TO CONSOLE</button>
+        </form>
+
+        <!-- Create Account Form -->
+        <form id="fR" class="hide">
+          <label>
+            Full Name
+            <input type="text" name="name" required autocomplete="name" placeholder="Prof. Ahmed Amin">
+          </label>
+          <label>
+            Email Address
+            <input type="email" name="email" required autocomplete="email" placeholder="instructor@classisense.edu">
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" required minlength="6" autocomplete="new-password" placeholder="••••••••">
+          </label>
+          <label>
+            Confirm Password
+            <input type="password" name="confirm" required minlength="6" autocomplete="new-password" placeholder="••••••••">
+          </label>
+          <p class="err" id="eR" role="alert"></p>
+          <button type="submit" class="btn disp">CREATE CREDENTIALS</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <!-- Application Scripts -->
+  <script src="assets/js/api.js"></script>
+  <script src="assets/js/auth.js"></script>
+</body>
+</html>

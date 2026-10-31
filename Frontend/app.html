@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ClassiSense (WolfEye) · Dashboard</title>
+  <!-- Google Fonts: Orbitron & Sora -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+  <!-- Background Ambient Floating Orbs & Cyber Grid -->
+  <div class="ambient-bg">
+    <div class="ambient-grid"></div>
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <div class="shell">
+    <!-- Sidebar Navigation -->
+    <aside class="side">
+      <div class="logo disp">
+        <div class="mark"></div>
+        <span class="logo-text">WOLFEYE</span>
+      </div>
+
+      <button class="nav on" data-v="home" type="button">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        <span>Live overview</span>
+      </button>
+
+      <button class="nav" data-v="history" type="button">
+        <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 8v4l3 2"/></svg>
+        <span>History & Logs</span>
+      </button>
+
+      <button class="nav" data-v="alerts" type="button">
+        <svg viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 6 3 7 3 7H3s3-1 3-7M10 20a2 2 0 0 0 4 0"/></svg>
+        <span>Safety Alarms</span>
+        <b class="badge hide" id="badge">0</b>
+      </button>
+
+      <div class="grow"></div>
+
+      <button class="nav" id="out" type="button">
+        <svg viewBox="0 0 24 24"><path d="M9 4H5v16h4M16 8l4 4-4 4M20 12H9"/></svg>
+        <span>Sign out</span>
+      </button>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main">
+      <header class="top">
+        <div>
+          <h1 id="title" class="disp">Live Overview</h1>
+          <p class="sub" id="hello">Connected to classroom telemetry hub</p>
+        </div>
+        <span class="pill" id="conn"><i class="dot"></i><span>Synchronizing...</span></span>
+      </header>
+
+      <!-- HOME SECTION: Live Telemetry & Varied Charts -->
+      <section id="v-home" class="grid">
+        <!-- 4 Key Telemetry Stat Cards -->
+        <div class="box stat">
+          <small>Current Occupancy</small>
+          <div class="val" id="people">—<i>heads</i></div>
+          <small>YOLOv8 Detection Stream</small>
+        </div>
+
+        <div class="box stat">
+          <small>Ambient Temperature</small>
+          <div class="val" id="temp">—<i>°C</i></div>
+          <small>Arduino LM35 Sensor (A0)</small>
+        </div>
+
+        <div class="box stat" id="gasBox">
+          <small>Gas Atmosphere</small>
+          <div class="val" id="gas">Normal</div>
+          <small>MQ-5 Sensor (D4 Digital)</small>
+        </div>
+
+        <div class="box stat">
+          <small>Smart Lighting State</small>
+          <div class="val" id="led">—</div>
+          <small id="ledSec">Active run: —</small>
+        </div>
+
+        <!-- Chart 1: Real-time Occupancy (Line / Spline Chart) -->
+        <div class="box w2">
+          <h3>
+            <span>Real-time Occupancy</span>
+            <span class="box-tag">Line Telemetry</span>
+          </h3>
+          <div class="chart"><canvas id="cPeople"></canvas></div>
+        </div>
+
+        <!-- Chart 2: Temperature Variation (Bar Chart) -->
+        <div class="box w2">
+          <h3>
+            <span>Temperature Dynamics (°C)</span>
+            <span class="box-tag">Column Bars</span>
+          </h3>
+          <div class="chart"><canvas id="cTemp"></canvas></div>
+        </div>
+
+        <!-- Chart 3: Electricity & Energy Hours (Doughnut Chart + Energy Stats) -->
+        <div class="box w4">
+          <h3>
+            <span>Power & Lighting Consumption Breakdown</span>
+            <span class="box-tag">Eco Doughnut</span>
+          </h3>
+          <div class="energy-widget">
+            <div class="doughnut-wrap">
+              <canvas id="cEnergy"></canvas>
+              <div class="doughnut-center-stat">
+                <div class="big" id="ecoRate">65%</div>
+                <div class="lbl">Energy Saved</div>
+              </div>
+            </div>
+
+            <div class="energy-metrics">
+              <div class="energy-row">
+                <div class="desc">
+                  <span class="energy-dot active"></span>
+                  <span>Active Lighting Run</span>
+                </div>
+                <span class="num" id="energyActiveHours">3.4 hrs</span>
+              </div>
+
+              <div class="energy-row">
+                <div class="desc">
+                  <span class="energy-dot saved"></span>
+                  <span>Auto-Off Eco Saved Time</span>
+                </div>
+                <span class="num" id="energySavedHours">6.6 hrs</span>
+              </div>
+
+              <div class="energy-row">
+                <div class="desc">
+                  <span class="energy-dot kwh"></span>
+                  <span>Estimated Power Consumed</span>
+                </div>
+                <span class="num" id="energyKwh">1.70 kWh</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- HISTORY SECTION: Table with Date Filter & Row Deletion -->
+      <section id="v-history" class="hide">
+        <div class="box">
+          <div class="table-header-bar">
+            <div>
+              <h3 style="margin: 0;">Classroom Telemetry Logs</h3>
+              <p class="sub" style="margin-top: 4px;">Historical records stored in 180s monitoring cycles</p>
+            </div>
+            <div class="filter-controls">
+              <!-- Date Search Input -->
+              <div class="date-search-box">
+                <svg class="search-icon" viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z"/></svg>
+                <input type="date" id="historyDate" class="input-date" aria-label="Search logs by date">
+                <button type="button" id="clearHistoryDate" class="btn-clear" title="Clear date filter">✕</button>
+              </div>
+
+              <!-- Range Selector -->
+              <select id="range" aria-label="Time range selector">
+                <option value="24h">Last 24 hours</option>
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+              </select>
+
+              <!-- Export History to Excel -->
+              <button type="button" id="exportHistoryExcel" class="btn-excel" title="Download telemetry logs as Excel spreadsheet">
+                <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm1.8 14.5-1.4-2.3 1.3-2.2h-1.6l-.6 1.3-.6-1.3h-1.6l1.3 2.2-1.4 2.3h1.6l.7-1.4.7 1.4h1.6zM13 9V3.5L18.5 9H13z"/></svg>
+                <span>Export Excel</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="tw">
+            <table>
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Occupancy (People)</th>
+                  <th>Temperature (°C)</th>
+                  <th>MQ-5 Gas Atmosphere</th>
+                  <th>Cumulative Lighting Run</th>
+                  <th style="text-align: center; width: 70px;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- SAFETY ALARMS SECTION with Date Filter & Deletion -->
+      <section id="v-alerts" class="hide">
+        <div class="box">
+          <div class="table-header-bar">
+            <div>
+              <h3 style="margin: 0; display: flex; align-items: center; gap: 10px;">
+                <span>Critical Event Logs</span>
+                <span class="box-tag" style="color: var(--bad); border-color: rgba(255,77,109,0.4); background: rgba(255,77,109,0.1);">Telegram Synced</span>
+              </h3>
+              <p class="sub" style="margin-top: 4px;">Real-time threshold breaches & sensor hazard alarms</p>
+            </div>
+            <div class="filter-controls">
+              <!-- Date Search Input for Alerts -->
+              <div class="date-search-box">
+                <svg class="search-icon" viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z"/></svg>
+                <input type="date" id="alertsDate" class="input-date" aria-label="Search alerts by date">
+                <button type="button" id="clearAlertsDate" class="btn-clear" title="Clear date filter">✕</button>
+              </div>
+
+              <!-- Export Alerts to Excel -->
+              <button type="button" id="exportAlertsExcel" class="btn-excel" title="Download alarms as Excel spreadsheet">
+                <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm1.8 14.5-1.4-2.3 1.3-2.2h-1.6l-.6 1.3-.6-1.3h-1.6l1.3 2.2-1.4 2.3h1.6l.7-1.4.7 1.4h1.6zM13 9V3.5L18.5 9H13z"/></svg>
+                <span>Export Excel</span>
+              </button>
+            </div>
+          </div>
+          <div id="alertList"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Chart.js & SheetJS (Excel) CDNs -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- Application Scripts -->
+  <script src="assets/js/api.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

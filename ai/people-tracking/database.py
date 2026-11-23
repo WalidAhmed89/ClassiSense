@@ -25,7 +25,7 @@ TEMP_LIMIT = 45.0        # درجة الحرارة الخطرة (45 مئوية)
 ALERT_COOLDOWN = 20      # فترة انتظار (20 ثانية) لمنع تكرار نفس الإنذار
 
 # ─── إعدادات Telegram Bot ───────────────────────────────────────────────────
-TELEGRAM_BOT_TOKEN = "8926530352:AAHG39FNB2GkbCzJR-TWjSXRA3HZvAAEgGI"
+TELEGRAM_BOT_TOKEN = "9100583985:AAEjyEA1s1wcarLzT81KbSuj7RfwMRcKv5o"
 TELEGRAM_CHAT_ID   = "-1004404274117"
 TELEGRAM_API_URL   = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 

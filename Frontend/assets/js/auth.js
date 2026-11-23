@@ -17,6 +17,11 @@ function dismissSplash() {
   }
 }
 
+// Allow user to click anywhere on splash screen to skip it immediately
+if (splashScene) {
+  splashScene.addEventListener('click', dismissSplash);
+}
+
 // Auto dismiss splash screen after intro sequence (~4.5s) or instant if reduced motion
 const isReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 setTimeout(dismissSplash, isReducedMotion ? 50 : 4500);

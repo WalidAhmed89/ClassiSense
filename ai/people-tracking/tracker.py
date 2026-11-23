@@ -1,20 +1,23 @@
+
 """
 ClassiSense - نظام المراقبة الذكي للقاعات الدراسية
-- الكشف عن الطلاب وتتبعهم وتحديد عددهم عبر نموذج YOLO
-- التحكم الذكي في إضاءة القاعة وتشغيل الإنذار عبر Arduino
-- قراءة حساسات الحرارة (LM35) والغاز (MQ-5)
-- إرسال البيانات دورياً كل 3 دقائق لجدول monitoring_logs
-- إرسال تنبيه فوري لجدول alerts عند وجود خطر
+- الكشف عن الطلاب وتتبعهم باستخدام YOLO
+- التحكم في الإضاءة والإنذار عبر Arduino
+- قراءة حساسات الحرارة والغاز
+- إرسال البيانات كل 3 دقائق إلى monitoring_logs
+- إرسال التنبيهات إلى alerts عند وجود خطر
 """
 
 import sys
 import time
 from pathlib import Path
+
 import cv2
 from ultralytics import YOLO
 
-# إضافة المسار الحالي لـ sys.path لضمان استيراد الملفات بسلاسة
+# إضافة المسار الحالي لضمان استيراد الملفات
 CURRENT_DIR = Path(__file__).resolve().parent
+
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
@@ -22,120 +25,254 @@ from arduino_controller import ClassroomController
 from database import DatabaseManager
 
 
-# ==============================================================================
-# 1. إعداد وحدة التحكم بالأردوينو (Arduino Controller)
-# ==============================================================================
+# =========================================================
+# 1. إعداد Arduino Controller
+# =========================================================
+
 controller = ClassroomController(
-    port="COM5",            # بورت الأردوينو
-    led_pins=(2,),          # Pin 2: إضاءة الـ LED
-    buzzer_pin=3,           # Pin 3: إنذار الـ Buzzer
-    gas_digital_pin=4,      # Pin 4: مستشعر الغاز MQ-5 (طرف DO الرقمي فقط)
-    gas_analog_pin=None,    # تم إلغاؤه لأن الحساس موصل ديجيتال فقط (قراءة 0 أو 1)
-    temp_pin=0,             # Pin A0: مستشعر الحرارة LM35
-    empty_delay=10,         # ثواني الانتظار قبل إطفاء النور بعد خروج الطلاب
-    sampling_ms=500,        # أخذ عينات كل نصف ثانية لتهدئة وميض لمبة TX ومنفذ السيريال
-    enabled=True            # اجعلها False لو بتجرب بدون توصيل الأردوينو
+    port="COM5",
+    led_pins=(2,),
+    buzzer_pin=3,
+    gas_digital_pin=4,
+    gas_analog_pin=None,
+    temp_pin=0,
+    empty_delay=10,
+    sampling_ms=500,
+    enabled=False,  # False للتجربة بدون Arduino
 )
 
-# ==============================================================================
-# 2. إعداد قاعدة بيانات Firebase Firestore
-# ==============================================================================
+
+# =========================================================
+# 2. إعداد Firebase
+# =========================================================
+
 db_manager = DatabaseManager()
 
-# ==============================================================================
-# 3. تحميل نموذج الذكاء الاصطناعي YOLO
-# ==============================================================================
-# تحميل الموديل (يبحث في المجلد الحالي أو مجلد المشروع الرئيسي)
+
+# =========================================================
+# 3. تحميل نموذج YOLO
+# =========================================================
+
 model_path = "yolo26n.pt"
 
-# إعدادات الـ Detection (مأخوذة من yolo26.py عشان أدق نتيجة)
-IMAGE_SIZE  = 640          # حجم الصورة اللي بيشوفها الموديل
-CONFIDENCE = 0.15          # threshold منخفض عشان يديتكت أكتر ناس
-TRACKER     = "bytetrack.yaml"  # أفضل tracker للتتبع المتواصل
+IMAGE_SIZE = 640
+CONFIDENCE = 0.15
+TRACKER = "bytetrack.yaml"
 
 print(f"[INFO] Loading YOLO model: {model_path}")
+
 model = YOLO(model_path)
 
-# ==============================================================================
-# 4. فتح الكاميرا (أو ملف الفيديو)
-# ==============================================================================
-# 0 للكاميرا، أو مسار ملف فيديو مثل "video.mp4"
 
-# cap = cv2.VideoCapture(0)
+# =========================================================
+# 4. فتح الفيديو
+# =========================================================
 
-# if not cap.isOpened() and (CURRENT_DIR / "video.mp4").exists():
-#     print("[WARN] Camera not available, falling back to video.mp4")
-#     cap = cv2.VideoCapture(str(CURRENT_DIR / "video.mp4"))
+video_path = CURRENT_DIR / "video.mp4"
 
-cap = cv2.VideoCapture("ai/people-tracking/video.mp4")
+cap = cv2.VideoCapture(str(video_path))
 
-# ==============================================================================
-# 5. حلقة المعالجة اللحظية للفيديو (Main Loop)
-# ==============================================================================
+WINDOW_NAME = "ClassiSense - Smart Classroom Monitoring"
+
+if not cap.isOpened():
+    print("[ERROR] Could not open video.mp4")
+else:
+    print("[INFO] Video opened successfully.")
+
+
+# =========================================================
+# 5. Main Monitoring Loop
+# =========================================================
+
 print("[INFO] Starting Classroom Monitoring (Press Q to quit)...")
 
-while cap.isOpened():
-    success, frame = cap.read()
-    if not success:
-        # إعادة تشغيل الفيديو تلقائياً لو كان ملف فيديو
-        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-        continue
+try:
 
-    # 1. تتبع الأشخاص باستخدام YOLO — نفس إعدادات yolo26.py بالظبط
-    results = model.track(
-        frame,
-        persist=True,
-        tracker=TRACKER,
-        classes=[0],           # نفلتر على الناس مباشرةً داخل الموديل
-        conf=CONFIDENCE,       # 0.15 — أحساس أعلى للديتكشن
-        imgsz=IMAGE_SIZE,      # 640
-        device="cpu",
-        verbose=False,
-    )
+    while cap.isOpened():
 
-    result     = results[0]
-    frame      = result.plot()  # يرسم الـ boxes والـ labels تلقائياً زي yolo26.py
-    occupancy_count = len(result.boxes) if result.boxes is not None else 0
+        success, frame = cap.read()
 
-    # 2. تحديث الأردوينو (التحكم بالأنوار + قراءة الحساسات)
-    controller.update(occupancy_count)
-    sensor_data = controller.get_sensor_data()
+        if not success:
+            # إعادة تشغيل الفيديو تلقائياً عند الوصول لنهايته
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            continue
 
-    temp_val = sensor_data.get("temperature_c")
-    gas_detected = sensor_data.get("gas_detected", 0)  # 0: مفيش غاز، 1: فيه تسريب غاز
-    gas_danger = bool(gas_detected)
-    lights_state = "ON" if sensor_data.get("lights_on") else "OFF"
-    led_sec = sensor_data.get("led_on_seconds", 0)
+        # -------------------------------------------------
+        # YOLO Person Detection & Tracking
+        # -------------------------------------------------
 
-    # 3. إرسال البيانات لقاعدة بيانات MySQL
-    # أ) تسجيل دوري في monitoring_logs كل 3 دقائق
-    db_manager.check_and_log_monitoring(sensor_data)
+        results = model.track(
+            frame,
+            persist=True,
+            tracker=TRACKER,
+            classes=[0],
+            conf=CONFIDENCE,
+            imgsz=IMAGE_SIZE,
+            device="cpu",
+            verbose=False,
+        )
 
-    # ب) تسجيل فوري في alerts عند وجود تسريب غاز (1) أو حرارة مرتفعة
-    db_manager.check_and_trigger_alerts(gas_danger, temp_val)
+        result = results[0]
 
-    # 4. عرض البيانات على شاشة الكاميرا (HUD)
-    cv2.putText(frame, f"Occupancy: {occupancy_count}", (30, 40),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-    cv2.putText(frame, f"Temp: {temp_val} C" if temp_val else "Temp: Reading...", (30, 75),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 200, 0), 2)
-    cv2.putText(frame, "Gas: DANGER (1)" if gas_danger else "Gas: Safe (0)", (30, 110),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255) if gas_danger else (0, 255, 0), 2)
-    cv2.putText(frame, f"Lights: {lights_state} ({led_sec}s)", (30, 145),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
-    cv2.putText(frame, db_manager.get_hud_status(), (30, 180),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 220, 255), 2)
+        frame = result.plot()
 
-    # عرض الفيديو
-    cv2.imshow("ClassiSense - Smart Classroom Monitoring", frame)
+        occupancy_count = (
+            len(result.boxes)
+            if result.boxes is not None
+            else 0
+        )
 
-    # الخروج بالضغط على Q
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
+        # -------------------------------------------------
+        # Arduino Controller
+        # -------------------------------------------------
 
-# تحرير الموارد وإغلاق الاتصال بأمان
-cap.release()
-cv2.destroyAllWindows()
-controller.close()
-db_manager.close()
-print("[INFO] Application exited cleanly.")
+        controller.update(occupancy_count)
+
+        sensor_data = controller.get_sensor_data()
+
+        temp_val = sensor_data.get("temperature_c")
+
+        gas_detected = sensor_data.get("gas_detected", 0)
+
+        gas_danger = bool(gas_detected)
+
+        lights_state = (
+            "ON"
+            if sensor_data.get("lights_on")
+            else "OFF"
+        )
+
+        led_sec = sensor_data.get("led_on_seconds", 0)
+
+        # -------------------------------------------------
+        # Firebase Updates & Monitoring Logs
+        # -------------------------------------------------
+
+        db_manager.check_and_log_monitoring(sensor_data)
+
+        db_manager.check_and_trigger_alerts(
+            gas_danger,
+            temp_val
+        )
+
+        # -------------------------------------------------
+        # Display HUD
+        # -------------------------------------------------
+
+        cv2.putText(
+            frame,
+            f"Occupancy: {occupancy_count}",
+            (30, 40),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 255, 0),
+            2
+        )
+
+        temp_text = (
+            f"Temp: {temp_val} C"
+            if temp_val is not None
+            else "Temp: Reading..."
+        )
+
+        cv2.putText(
+            frame,
+            temp_text,
+            (30, 75),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 200, 0),
+            2
+        )
+
+        gas_text = (
+            "Gas: DANGER (1)"
+            if gas_danger
+            else "Gas: Safe (0)"
+        )
+
+        gas_color = (
+            (0, 0, 255)
+            if gas_danger
+            else (0, 255, 0)
+        )
+
+        cv2.putText(
+            frame,
+            gas_text,
+            (30, 110),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            gas_color,
+            2
+        )
+
+        cv2.putText(
+            frame,
+            f"Lights: {lights_state} ({led_sec}s)",
+            (30, 145),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (200, 200, 200),
+            2
+        )
+
+        cv2.putText(
+            frame,
+            db_manager.get_hud_status(),
+            (30, 180),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (0, 220, 255),
+            2
+        )
+
+        # -------------------------------------------------
+        # Display Video
+        # -------------------------------------------------
+
+        cv2.imshow(WINDOW_NAME, frame)
+
+        # -------------------------------------------------
+        # Exit Conditions
+        # -------------------------------------------------
+
+        key = cv2.waitKey(1) & 0xFF
+
+        if key == ord("q") or key == ord("Q"):
+            print("[INFO] Q pressed. Stopping monitoring...")
+            break
+
+        # الخروج عند إغلاق نافذة الفيديو بعلامة X
+        try:
+            if cv2.getWindowProperty(
+                WINDOW_NAME,
+                cv2.WND_PROP_VISIBLE
+            ) < 1:
+                print("[INFO] Video window closed.")
+                break
+
+        except cv2.error:
+            break
+
+except KeyboardInterrupt:
+    print("\n[INFO] Monitoring stopped by user (Ctrl+C).")
+
+except Exception as error:
+    print(f"[ERROR] Monitoring failed: {error}")
+
+finally:
+
+    # =====================================================
+    # 6. Safe Cleanup
+    # =====================================================
+
+    cap.release()
+
+    cv2.destroyAllWindows()
+
+    controller.close()
+
+    db_manager.close()
+
+    print("[INFO] Application exited cleanly.")

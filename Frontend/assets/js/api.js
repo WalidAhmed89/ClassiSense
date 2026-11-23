@@ -1,130 +1,379 @@
-/* =====================================================================
-   ClassiSense / WolfEye - Frontend Telemetry Engine (Standalone)
-   ===================================================================== */
-window.WE = (() => {
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
-  const rnd = (min, max) => min + Math.random() * (max - min);
 
-  // Classroom state simulation
-  let simulatedPeople = 18;
-  let simulatedTemp = 26.4;
-  let simulatedLedSeconds = 12480; // ~3.47 hours
-  let simulatedGasDanger = false;
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 
-  const getLiveTelemetry = () => {
-    // Realistic micro-drift in classroom occupancy
-    const delta = Math.floor(rnd(-2, 3));
-    simulatedPeople = Math.max(0, Math.min(38, simulatedPeople + delta));
+import {
+  getFirestore,
+  doc,
+  onSnapshot,
+  collection,
+  query,
+  orderBy,
+  getDocs,
+  where,
+  Timestamp,
+  deleteDoc
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-    // Temperature subtle drift
-    simulatedTemp = +(Math.max(22.0, Math.min(32.5, simulatedTemp + rnd(-0.2, 0.25))).toFixed(1));
+import {
+  getAuth,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+  onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-    // Lighting automation: ON when people > 0
-    const ledIsOn = simulatedPeople > 0;
-    if (ledIsOn) {
-      simulatedLedSeconds += 2;
+
+// ==========================================
+// 1. FIREBASE CONFIGURATION
+// ==========================================
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBc_ord6cuH03PDzxv17H1i9pVlprdl-mI",
+  authDomain: "wolfeye-eff54.firebaseapp.com",
+  projectId: "wolfeye-eff54",
+  storageBucket: "wolfeye-eff54.firebasestorage.app",
+  messagingSenderId: "226019434869",
+  appId: "1:226019434869:web:4cee67f81d05e05c14733c"
+};
+
+const app = initializeApp(firebaseConfig);
+
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+
+// ==========================================
+// 2. LOCAL CACHE
+// ==========================================
+
+const LIVE_CACHE_KEY = "we_last_live";
+const USER_CACHE_KEY = "we_user";
+
+const readLiveCache = () => {
+  try {
+    const cached = JSON.parse(
+      localStorage.getItem(LIVE_CACHE_KEY) || "null"
+    );
+
+    if (cached?.updated_at) {
+      cached.updated_at = new Date(cached.updated_at);
     }
 
-    return {
-      people_count: simulatedPeople,
-      led_is_on: ledIsOn,
-      led_on_seconds: simulatedLedSeconds,
-      temperature_c: simulatedTemp,
-      gas_detected: simulatedGasDanger ? 1 : 0,
-      gas_danger: simulatedGasDanger,
-      updated_at: new Date()
-    };
-  };
+    return cached;
+  } catch {
+    return null;
+  }
+};
 
-  return {
-    session: () => JSON.parse(localStorage.getItem('we_user') || 'null'),
+const saveLiveCache = (data) => {
+  try {
+    localStorage.setItem(
+      LIVE_CACHE_KEY,
+      JSON.stringify(data)
+    );
+  } catch {}
+};
 
-    async login(email, pw) {
-      await sleep(500);
-      const user = {
-        name: email.split('@')[0],
-        email: email,
-        role: 'Faculty Supervisor'
-      };
-      localStorage.setItem('we_user', JSON.stringify(user));
-      return user;
-    },
+const saveUserCache = (user) => {
+  try {
+    localStorage.setItem(
+      USER_CACHE_KEY,
+      JSON.stringify(user)
+    );
+  } catch {}
+};
 
-    async register(name, email, pw) {
-      await sleep(600);
-      const user = {
-        name: name || email.split('@')[0],
-        email: email,
-        role: 'Classroom Administrator'
-      };
-      localStorage.setItem('we_user', JSON.stringify(user));
-      return user;
-    },
+const clearUserCache = () => {
+  localStorage.removeItem(USER_CACHE_KEY);
+};
 
-    async logout() {
-      localStorage.removeItem('we_user');
-    },
+const formatUser = (firebaseUser) => ({
+  uid: firebaseUser.uid,
+  name:
+    firebaseUser.displayName ||
+    firebaseUser.email?.split("@")[0] ||
+    "User",
+  email: firebaseUser.email,
+  role: "User"
+});
 
-    subscribeLive(callback) {
-      // Immediate initial emission
-      callback(getLiveTelemetry());
 
-      // Periodic live emission every 2 seconds
-      const timer = setInterval(() => {
-        callback(getLiveTelemetry());
-      }, 2000);
+// ==========================================
+// 3. AUTHENTICATION
+// ==========================================
 
-      return () => clearInterval(timer);
-    },
+window.WE = {
 
-    async getLogs(range) {
-      await sleep(250);
-      const countMap = { '24h': 24, '7d': 28, '30d': 30 };
-      const stepMap = { '24h': 3600000, '7d': 6 * 3600000, '30d': 86400000 };
+  session() {
+    try {
+      return JSON.parse(
+        localStorage.getItem(USER_CACHE_KEY) || "null"
+      );
+    } catch {
+      return null;
+    }
+  },
 
-      const count = countMap[range] || 24;
-      const step = stepMap[range] || 3600000;
-      const now = Date.now();
+  async login(email, password) {
+    const result = await signInWithEmailAndPassword(
+      auth,
+      email.trim(),
+      password
+    );
 
-      return Array.from({ length: count }, (_, i) => {
-        const timestamp = new Date(now - (count - 1 - i) * step);
-        const hour = timestamp.getHours();
-        
-        // Simulating realistic classroom schedule: peak occupancy during 9am - 5pm
-        const isClassHour = hour >= 9 && hour <= 17;
-        const people = isClassHour ? Math.round(rnd(12, 34)) : (Math.random() < 0.2 ? Math.round(rnd(1, 5)) : 0);
-        const temp = +(rnd(23.5, 29.8).toFixed(1));
-        const lightSeconds = isClassHour ? Math.round(rnd(2400, 3500)) : (people > 0 ? 300 : 0);
+    const user = formatUser(result.user);
 
-        return {
-          people_count: people,
-          led_is_on: people > 0,
-          led_on_seconds: lightSeconds,
-          temperature_c: temp,
-          gas_detected: 0,
-          created_at: timestamp
+    saveUserCache(user);
+
+    return user;
+  },
+
+  async register(name, email, password) {
+    const result = await createUserWithEmailAndPassword(
+      auth,
+      email.trim(),
+      password
+    );
+
+    await updateProfile(result.user, {
+      displayName: name.trim()
+    });
+
+    const user = formatUser({
+      ...result.user,
+      displayName: name.trim()
+    });
+
+    saveUserCache(user);
+
+    return user;
+  },
+
+  async logout() {
+    await signOut(auth);
+    clearUserCache();
+  },
+
+
+  // ========================================
+  // 4. LIVE CLASSROOM DATA
+  // ========================================
+
+  subscribeLive(callback) {
+    const cached = readLiveCache();
+
+    if (cached) {
+      callback(cached, { cached: true });
+    }
+
+    const liveRef = doc(db, "classroom", "live_status");
+
+    return onSnapshot(
+      liveRef,
+
+      (docSnap) => {
+        if (!docSnap.exists()) return;
+
+        const data = docSnap.data();
+        const last = readLiveCache();
+
+        const live = {
+          people_count: data.people_count ?? 0,
+          led_is_on: !!data.led_is_on,
+          led_on_seconds: data.led_on_seconds ?? 0,
+
+          temperature_c:
+            data.temperature_c ?? last?.temperature_c ?? null,
+
+          gas_detected: data.gas_detected ?? 0,
+          gas_danger: !!data.gas_danger,
+
+          updated_at: data.updated_at
+            ? data.updated_at.toDate()
+            : new Date()
         };
+
+        saveLiveCache(live);
+
+        callback(live, { cached: false });
+      },
+
+      (error) => {
+        console.error("Live status error:", error);
+      }
+    );
+  },
+
+
+  // ========================================
+  // 5. HISTORY LOGS
+  // ========================================
+
+  async getLogs(range = "24h") {
+    try {
+      const now = new Date();
+      const startDate = new Date(now);
+
+      if (range === "24h") {
+        startDate.setHours(startDate.getHours() - 24);
+
+      } else if (range === "7d") {
+        startDate.setDate(startDate.getDate() - 7);
+
+      } else if (range === "30d") {
+        startDate.setDate(startDate.getDate() - 30);
+      }
+
+      const q = query(
+        collection(db, "monitoring_logs"),
+        where(
+          "created_at",
+          ">=",
+          Timestamp.fromDate(startDate)
+        ),
+        orderBy("created_at", "desc")
+      );
+
+      const snapshot = await getDocs(q);
+
+      const logs = [];
+
+      snapshot.forEach((document) => {
+        const data = document.data();
+
+        logs.push({
+          id: document.id,
+
+          people_count: data.people_count ?? 0,
+
+          led_is_on: !!data.led_is_on,
+
+          led_on_seconds: data.led_on_seconds ?? 0,
+
+          temperature_c: data.temperature_c ?? null,
+
+          gas_detected: data.gas_detected ?? 0,
+
+          created_at: data.created_at?.toDate
+            ? data.created_at.toDate()
+            : data.created_at
+              ? new Date(data.created_at)
+              : null
+        });
       });
-    },
 
-    subscribeAlerts(callback) {
-      const mockAlerts = [
-        {
-          alert_type: 'HIGH_TEMPERATURE',
-          severity: 'CRITICAL',
-          measured_value: 46.8,
-          created_at: new Date(Date.now() - 42 * 60000)
-        },
-        {
-          alert_type: 'GAS_LEAK',
-          severity: 'CRITICAL',
-          measured_value: 1.0,
-          created_at: new Date(Date.now() - 180 * 60000)
-        }
-      ];
+      return logs;
 
-      callback(mockAlerts);
-      return () => {};
+    } catch (error) {
+      console.error("getLogs error:", error);
+      throw error;
     }
-  };
-})();
+  },
+
+
+  // ========================================
+  // 6. DELETE HISTORY LOG
+  // ========================================
+
+  async deleteLog(id) {
+    if (!id) {
+      throw new Error("Invalid log ID");
+    }
+
+    try {
+      await deleteDoc(
+        doc(db, "monitoring_logs", id)
+      );
+
+      return true;
+
+    } catch (error) {
+      console.error("Delete log error:", error);
+      throw error;
+    }
+  },
+
+
+  // ========================================
+  // 7. SAFETY ALERTS
+  // ========================================
+
+  subscribeAlerts(callback) {
+    const q = query(
+      collection(db, "alerts"),
+      orderBy("created_at", "desc")
+    );
+
+    return onSnapshot(
+      q,
+
+      (snapshot) => {
+        const alerts = [];
+
+        snapshot.forEach((document) => {
+          const data = document.data();
+
+          alerts.push({
+            id: document.id,
+
+            alert_type: data.alert_type,
+
+            severity: data.severity,
+
+            measured_value: data.measured_value,
+
+            created_at: data.created_at?.toDate
+              ? data.created_at.toDate()
+              : data.created_at
+                ? new Date(data.created_at)
+                : null
+          });
+        });
+
+        callback(alerts);
+      },
+
+      (error) => {
+        console.error("Alerts error:", error);
+      }
+    );
+  },
+
+
+  // ========================================
+  // 8. DELETE SAFETY ALERT
+  // ========================================
+
+  async deleteAlert(id) {
+    if (!id) {
+      throw new Error("Invalid alert ID");
+    }
+
+    try {
+      await deleteDoc(
+        doc(db, "alerts", id)
+      );
+
+      return true;
+
+    } catch (error) {
+      console.error("Delete alert error:", error);
+      throw error;
+    }
+  }
+
+};
+
+
+// ==========================================
+// 9. AUTH STATE LISTENER
+// ==========================================
+
+onAuthStateChanged(auth, (firebaseUser) => {
+  if (firebaseUser) {
+    saveUserCache(formatUser(firebaseUser));
+  } else {
+    clearUserCache();
+  }
+});

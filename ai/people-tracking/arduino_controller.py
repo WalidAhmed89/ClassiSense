@@ -26,7 +26,7 @@ class ClassroomController:
         v_ref=5.0,
         history_interval=2.0,
         sampling_ms=500,
-        temp_sensor_type="TMP36",
+        temp_sensor_type="LM35",
         enabled=True
     ):
         # إعدادات المؤقت والمهلة
@@ -164,17 +164,23 @@ class ClassroomController:
           temp = volt * 100.0
         """
         if value is not None:
+            # تحويل قراءة الـ ADC (من 0 إلى 1023) إلى جهد كهربائي بالفولت
+            # مكتبة pyfirmata2 ترسل القيمة 'value' كنسبة معيارية (val / 1023.0)
+            # volt = (5.0 / 1023.0) * val  =>  volt = value * 5.0
             volt = value * self.v_ref
 
-            if self.temp_sensor_type == "TMP36":
-                raw_temp = (volt - 0.5) * 100.0
-            elif self.temp_sensor_type == "LM35":
-                raw_temp = volt * 100.0
-            else:  # AUTO
-                raw_temp = (volt - 0.5) * 100.0 if volt >= 0.4 else volt * 100.0
+            if self.temp_sensor_type == "LM35":
+                # معادلة LM35: كل 0.01 فولت (10 ملي فولت) = 1 درجة مئوية
+                # temp = volt / 0.01  (وهي مكافئة رياضياً لـ volt * 100)
+                raw_temp = volt / 0.01
+            elif self.temp_sensor_type == "TMP36":
+                # مستشعر TMP36 (Offset 0.5V عند 0°C)
+                raw_temp = (volt - 0.5) / 0.01
+            else:
+                raw_temp = volt / 0.01
 
             # استبعاد القراءات الشاذة الناتجة عن تذبذب الأسلاك
-            if -5.0 <= raw_temp <= 80.0:
+            if 0.0 <= raw_temp <= 80.0:
                 if self.temperature is None:
                     self.temperature = round(raw_temp, 1)
                 else:

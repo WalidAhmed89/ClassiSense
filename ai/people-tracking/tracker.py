@@ -38,7 +38,7 @@ controller = ClassroomController(
     temp_pin=0,
     empty_delay=10,
     sampling_ms=500,
-    enabled=False,  # False للتجربة بدون Arduino
+    enabled=True,  # True لتفعيل الاتصال الفعلي بالأردوينو
 )
 
 

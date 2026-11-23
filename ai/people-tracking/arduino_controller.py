@@ -26,6 +26,7 @@ class ClassroomController:
         v_ref=5.0,
         history_interval=2.0,
         sampling_ms=500,
+        temp_sensor_type="TMP36",
         enabled=True
     ):
         # إعدادات المؤقت والمهلة
@@ -36,6 +37,7 @@ class ClassroomController:
 
         # إعدادات الحساسات والجهد المرجعي
         self.v_ref = v_ref
+        self.temp_sensor_type = temp_sensor_type
         self.gas_active_low = gas_active_low
         self.gas_analog_threshold = gas_analog_threshold
 
@@ -87,8 +89,21 @@ class ClassroomController:
             return
 
         try:
-            print(f"[INFO] Connecting to Arduino on port: {port}...")
-            self.board = Arduino(port)
+            actual_port = port
+            if port != Arduino.AUTODETECT:
+                try:
+                    import serial.tools.list_ports as lp
+                    all_devices = [p.device for p in lp.comports()]
+                    if port not in all_devices:
+                        usb_devs = [p.device for p in lp.comports() if ("USB" in (p.description or "") or "Arduino" in (p.description or ""))]
+                        if usb_devs:
+                            print(f"[INFO] Port {port} not found. Found Arduino on {usb_devs[0]}. Auto-switching...")
+                            actual_port = usb_devs[0]
+                except Exception:
+                    pass
+
+            print(f"[INFO] Connecting to Arduino on port: {actual_port}...")
+            self.board = Arduino(actual_port)
 
             # تفعيل أخذ العينات (Sampling) بمعدل مريح (500ms) لتهدئة السيريال وتفادي وميض لمبة TX السريع
             self.board.samplingOn(sampling_ms)
@@ -137,29 +152,46 @@ class ClassroomController:
 
     def _on_temp_received(self, value):
         """
-        معادلة حساب درجة الحرارة من مستشعر LM35:
-        volt = (5.0 / 1023.0) * val
-        temp = volt / 0.01
+        معادلة حساب وتنعيم درجة الحرارة من مستشعر (TMP36 / LM35):
+        في مكتبة pyfirmata2، تأتي 'value' كنسبة عشرية بين 0.0 و 1.0 (أي val / 1023.0).
+        volt = value * v_ref  (حيث v_ref = 5.0V)
 
-        في مكتبة pyfirmata2، القراءة التناظرية 'value' تأتي كنسبة عشرية بين 0.0 و 1.0 (أي val / 1023.0).
-        نقوم بحساب الـ val الخام (من 0 إلى 1023) ثم تطبيق المعادلة بالضبط.
+        - مستشعر TMP36 (الأكثر انتشاراً في أطقم الأردوينو):
+          جهد الخرج يبدأ من 0.5V عند 0°C (Offset = 0.5V)، ومعدل الزيادة 10mV لكل 1°C:
+          temp = (volt - 0.5) * 100.0
+
+        - مستشعر LM35:
+          temp = volt * 100.0
         """
         if value is not None:
-            # القراءة الخام من محول الإشارة التناظرية (ADC: 0 to 1023)
-            val = value * 1023.0 if value <= 1.0 else value
+            volt = value * self.v_ref
 
-            # 1. حساب الجهد الكهربائي
-            volt = (self.v_ref / 1023.0) * val
+            if self.temp_sensor_type == "TMP36":
+                raw_temp = (volt - 0.5) * 100.0
+            elif self.temp_sensor_type == "LM35":
+                raw_temp = volt * 100.0
+            else:  # AUTO
+                raw_temp = (volt - 0.5) * 100.0 if volt >= 0.4 else volt * 100.0
 
-            # 2. حساب درجة الحرارة (حساس LM35 يعطي 10mV أي 0.01V لكل درجة مئوية)
-            temp = volt / 0.01
-
-            self.temperature = round(temp, 1)
+            # استبعاد القراءات الشاذة الناتجة عن تذبذب الأسلاك
+            if -5.0 <= raw_temp <= 80.0:
+                if self.temperature is None:
+                    self.temperature = round(raw_temp, 1)
+                else:
+                    # مرشح تنعيم رقمي (Exponential Moving Average) لمنع التذبذب وتخريف الأرقام
+                    smoothed = (0.80 * self.temperature) + (0.20 * raw_temp)
+                    self.temperature = round(smoothed, 1)
 
     def _on_gas_digital_received(self, value):
         """قراءة الإشارة الرقمية لمستشعر الغاز MQ-5"""
         if value is not None:
-            self.gas_digital_val = 1 if value else 0
+            new_val = 1 if value else 0
+            if self.gas_digital_val != new_val:
+                self.gas_digital_val = new_val
+                status = "DANGER/LEAK" if (new_val == 0 if self.gas_active_low else new_val == 1) else "SAFE"
+                print(f"[GAS] MQ-5 digital pin changed: {new_val} ({status})")
+            else:
+                self.gas_digital_val = new_val
 
     def _on_gas_analog_received(self, value):
         """قراءة الإشارة التناظرية لمستشعر الغاز MQ-5 (اختياري)"""
@@ -215,11 +247,11 @@ class ClassroomController:
         """فحص حالة الغاز وتحديد ما إذا كان هناك خطر (0: آمن، 1: تسريب)"""
         detected = False
 
-        # قراءة مباشرة للطرف الرقمي إن لم يتم تحديث الـ callback بعد
+        # قراءة الطرف الرقمي إن لم يتم تحديث الـ callback بعد بدون polling (.read ممنوعة في pyfirmata2)
         if self.gas_digital_val is None and self.gas_digital_pin_obj is not None:
-            raw_val = self.gas_digital_pin_obj.read()
-            if raw_val is not None:
-                self.gas_digital_val = 1 if raw_val else 0
+            val = getattr(self.gas_digital_pin_obj, "value", None)
+            if val is not None:
+                self.gas_digital_val = 1 if val else 0
 
         # فحص القراءة الرقمية (DO)
         # معظم موديولات MQ-5 مع شريحة LM393 تعطي 0 (LOW) عند رصد الغاز (Active Low)

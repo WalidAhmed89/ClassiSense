@@ -210,30 +210,38 @@ window.WE = {
   // 5. HISTORY LOGS
   // ========================================
 
-  async getLogs(range = "24h") {
+  async getLogs(range = "all") {
     try {
-      const now = new Date();
-      const startDate = new Date(now);
+      let q;
+      if (!range || range === "all") {
+        q = query(
+          collection(db, "monitoring_logs"),
+          orderBy("created_at", "desc")
+        );
+      } else {
+        const now = new Date();
+        const startDate = new Date(now);
 
-      if (range === "24h") {
-        startDate.setHours(startDate.getHours() - 24);
+        if (range === "24h") {
+          startDate.setHours(startDate.getHours() - 24);
 
-      } else if (range === "7d") {
-        startDate.setDate(startDate.getDate() - 7);
+        } else if (range === "7d") {
+          startDate.setDate(startDate.getDate() - 7);
 
-      } else if (range === "30d") {
-        startDate.setDate(startDate.getDate() - 30);
+        } else if (range === "30d") {
+          startDate.setDate(startDate.getDate() - 30);
+        }
+
+        q = query(
+          collection(db, "monitoring_logs"),
+          where(
+            "created_at",
+            ">=",
+            Timestamp.fromDate(startDate)
+          ),
+          orderBy("created_at", "desc")
+        );
       }
-
-      const q = query(
-        collection(db, "monitoring_logs"),
-        where(
-          "created_at",
-          ">=",
-          Timestamp.fromDate(startDate)
-        ),
-        orderBy("created_at", "desc")
-      );
 
       const snapshot = await getDocs(q);
 

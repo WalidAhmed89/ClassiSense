@@ -22,7 +22,7 @@ KEY_PATH = CURRENT_DIR / "serviceAccountKey.json"
 LOG_INTERVAL = 180       # تسجيل دوري كل 3 دقائق (180 ثانية)
 LIVE_SYNC_INTERVAL = 2   # تحديث الحالة اللحظية كل ثانيتين للموقع
 TEMP_LIMIT = 45.0        # درجة الحرارة الخطرة (45 مئوية)
-ALERT_COOLDOWN = 60      # فترة انتظار (60 ثانية) لمنع تكرار نفس الإنذار
+ALERT_COOLDOWN = 20      # فترة انتظار (20 ثانية) لمنع تكرار نفس الإنذار
 
 # ─── إعدادات Telegram Bot ───────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = "8926530352:AAHG39FNB2GkbCzJR-TWjSXRA3HZvAAEgGI"
@@ -66,11 +66,12 @@ class DatabaseManager:
             return
 
         now = time.monotonic()
-        if now - self.last_live_sync < LIVE_SYNC_INTERVAL:
+        gas_val = sensor_data.get("gas_detected", 0)
+        # مزامنة فورية عند وجود تسريب غاز أو كل ثانيتين في الوضع الطبيعي
+        if not gas_val and (now - self.last_live_sync < LIVE_SYNC_INTERVAL):
             return
 
         try:
-            gas_val = sensor_data.get("gas_detected", 0)
             doc_ref = self.db.collection("classroom").document("live_status")
             doc_ref.set({
                 "people_count": int(sensor_data.get("people_count", 0)),
